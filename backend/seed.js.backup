@@ -1,0 +1,753 @@
+'use strict';
+
+/**
+ * Complete Database Seed Script
+ * Populates ALL 16 collections: Institution, Department, User, Course, Lecture,
+ * Quiz, QuizResult, Assignment, Announcement, ForumPost, Attendance,
+ * Timetable, Event, Gradebook, Notification, AuditLog
+ *
+ * Run: cd backend && npm run seed
+ * WARNING: Deletes ALL existing data first.
+ */
+
+const mongoose = require('mongoose');
+require('dotenv').config();
+
+const User         = require('./models/User');
+const Institution  = require('./models/Institution');
+const Department   = require('./models/Department');
+const Course       = require('./models/Course');
+const Lecture      = require('./models/Lecture');
+const Quiz         = require('./models/Quiz');
+const QuizResult   = require('./models/QuizResult');
+const Assignment   = require('./models/Assignment');
+const Announcement = require('./models/Announcement');
+const ForumPost    = require('./models/ForumPost');
+const Attendance   = require('./models/Attendance');
+const Timetable    = require('./models/Timetable');
+const Event        = require('./models/Event');
+const Gradebook    = require('./models/Gradebook');
+const Notification = require('./models/Notification');
+const AuditLog     = require('./models/AuditLog');
+
+const daysAgo     = (n) => new Date(Date.now() - n * 864e5);
+const daysFromNow = (n) => new Date(Date.now() + n * 864e5);
+const DUMMY_PDF   = 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf';
+const DUMMY_VIDEO = 'https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4';
+
+// ── HELPER FUNCTION: Generate IDs –──────────────────────────────────────────
+const generateIds = async () => {
+  let deptIdCount = 0;
+  let profIdCount = 0;
+
+  // Generate departmentIds
+  const departments = await Department.find();
+  for (const dept of departments) {
+    if (!dept.departmentId) {
+      const inst = await Institution.findById(dept.institution);
+      if (inst) {
+        const instCode = inst.code || 'UNK';
+        const deptCode = dept.code || 'UNK';
+        dept.departmentId = `${instCode}-${deptCode}-001`;
+        await dept.save();
+        deptIdCount++;
+      }
+    }
+  }
+
+  // Generate professorIds
+  const professors = await User.find({ role: 'professor' }).populate('institution').populate('department');
+  const profsByDept = {};
+  for (const prof of professors) {
+    if (!prof.professorId && prof.department && prof.institution) {
+      const deptKey = prof.department._id.toString();
+      if (!profsByDept[deptKey]) {
+        profsByDept[deptKey] = [];
+      }
+      profsByDept[deptKey].push(prof);
+    }
+  }
+
+  for (const [deptKey, profs] of Object.entries(profsByDept)) {
+    const dept = await Department.findById(deptKey).populate('institution');
+    if (dept && dept.institution) {
+      const instCode = dept.institution.code || 'UNK';
+      const deptCode = dept.code || 'UNK';
+      for (let i = 0; i < profs.length; i++) {
+        profs[i].professorId = `${instCode}-${deptCode}-PROF-${String(i + 1).padStart(3, '0')}`;
+        await profs[i].save();
+        profIdCount++;
+      }
+    }
+  }
+
+  return { deptIdCount, profIdCount };
+}
+
+const seedData = async () => {
+    try {
+        console.log('Connecting to MongoDB...');
+        await mongoose.connect(process.env.MONGODB_URI);
+        console.log('Connected to MongoDB\n');
+
+        console.log('Clearing existing data...');
+        await Promise.all([
+            User.deleteMany({}), Institution.deleteMany({}), Department.deleteMany({}),
+            Course.deleteMany({}), Lecture.deleteMany({}), Quiz.deleteMany({}),
+            QuizResult.deleteMany({}), Assignment.deleteMany({}), Announcement.deleteMany({}),
+            ForumPost.deleteMany({}), Attendance.deleteMany({}), Timetable.deleteMany({}),
+            Event.deleteMany({}), Gradebook.deleteMany({}), Notification.deleteMany({}),
+            AuditLog.deleteMany({}),
+        ]);
+        console.log('All collections cleared.\n');
+
+        // ── 1. INSTITUTIONS ─────────────────────────────────────────────
+        console.log('Creating institutions...');
+        const institutions = await Institution.insertMany([
+            { name: 'Indian Institute of Technology Bombay', code: 'IITB', address: 'Main Gate Rd, IIT Area, Powai, Mumbai, Maharashtra 400076' },
+            { name: 'Indian Institute of Technology Delhi',  code: 'IITD', address: 'Hauz Khas, New Delhi, Delhi 110016' },
+            { name: 'University of Delhi',                   code: 'DU',   address: 'Benito Juarez Marg, South Campus, New Delhi, Delhi 110021' },
+            { name: 'Anna University',                       code: 'AU',   address: 'Sardar Patel Road, Guindy, Chennai, Tamil Nadu 600025' },
+        ]);
+        const [iitb, iitd, du, au] = institutions;
+        console.log('  Created ' + institutions.length + ' institutions.');
+
+        // ── 2. DEPARTMENTS ───────────────────────────────────────────────
+        console.log('Creating departments...');
+        const departments = await Department.insertMany([
+            { name: 'Computer Science & Engineering',    code: 'CSE',  institution: iitb._id },
+            { name: 'Electrical Engineering',             code: 'EE',   institution: iitb._id },
+            { name: 'Mechanical Engineering',             code: 'ME',   institution: iitb._id },
+            { name: 'Computer Science & Engineering',    code: 'CSE',  institution: iitd._id },
+            { name: 'Department of Physics',              code: 'PHY',  institution: iitd._id },
+            { name: 'Civil Engineering',                  code: 'CE',   institution: iitd._id },
+            { name: 'Faculty of Management Studies',     code: 'FMS',  institution: du._id   },
+            { name: 'Department of Mathematics',          code: 'MATH', institution: du._id   },
+            { name: 'Department of Economics',            code: 'ECO',  institution: du._id   },
+            { name: 'Information Technology',             code: 'IT',   institution: au._id   },
+            { name: 'Electronics & Communication Engg',  code: 'ECE',  institution: au._id   },
+        ]);
+        const [iitb_cse, iitb_ee, iitb_me, iitd_cse, iitd_phy, iitd_ce, du_fms, du_math, du_eco, au_it, au_ece] = departments;
+        console.log('  Created ' + departments.length + ' departments.');
+
+        // ── 3. USERS ─────────────────────────────────────────────────────
+        console.log('Creating users...');
+        const PWD = 'Password@123';
+        const usersData = [
+            // Super Admin
+            { name: 'Pratham Rajbhar',          email: 'pratham@superadmin.com',    password: PWD, role: 'super_admin', phone: '+91-9000000001', bio: 'Platform super administrator.' },
+            { name: 'Titiksha Raval',           email: 'titiksha@superadmin.com',   password: PWD, role: 'super_admin', phone: '+91-9000000002', bio: 'Senior platform administrator.' },
+            // Institutional Admins
+            { name: 'Dr. Ramesh Kumar',         email: 'admin@iitb.ac.in',          password: PWD, role: 'inst_admin',  institution: iitb._id, phone: '+91-9100000001' },
+            { name: 'Prof. Anjali Gupta',       email: 'admin@iitd.ac.in',          password: PWD, role: 'inst_admin',  institution: iitd._id, phone: '+91-9100000002' },
+            { name: 'Dr. Meenakshi Narayanan',  email: 'registrar@du.ac.in',        password: PWD, role: 'inst_admin',  institution: du._id,   phone: '+91-9100000003' },
+            { name: 'Prof. Krishnamurthy V.',   email: 'director@annauniv.edu',     password: PWD, role: 'inst_admin',  institution: au._id,   phone: '+91-9100000004' },
+            // Departmental Admins
+            { name: 'Amit Patel',               email: 'hod.cse@iitb.ac.in',        password: PWD, role: 'dept_admin',  institution: iitb._id, department: iitb_cse._id, phone: '+91-9200000001' },
+            { name: 'Dr. Priya Nair',           email: 'hod.ee@iitb.ac.in',         password: PWD, role: 'dept_admin',  institution: iitb._id, department: iitb_ee._id,  phone: '+91-9200000002' },
+            { name: 'Dr. Suresh Menon',         email: 'hod.cse@iitd.ac.in',        password: PWD, role: 'dept_admin',  institution: iitd._id, department: iitd_cse._id, phone: '+91-9200000003' },
+            { name: 'Dr. Lakshmi Devi',         email: 'hod.it@annauniv.edu',       password: PWD, role: 'dept_admin',  institution: au._id,   department: au_it._id,    phone: '+91-9200000004' },
+            // Professors
+            { name: 'Hiten Sadani',             email: 'hiten@iitb.ac.in',          password: PWD, role: 'professor', institution: iitb._id, department: iitb_cse._id, phone: '+91-9300000000', bio: 'Expert instructor in Computer Science.' },
+            { name: 'Dr. Vikram Malhotra',      email: 'vikram@iitb.ac.in',         password: PWD, role: 'professor', institution: iitb._id, department: iitb_cse._id, phone: '+91-9300000001', bio: 'Expert in Algorithms and Theory of Computation with 15+ years of experience.' },
+            { name: 'Prof. Suchitra Iyer',      email: 'suchitra@iitb.ac.in',       password: PWD, role: 'professor', institution: iitb._id, department: iitb_cse._id, phone: '+91-9300000002', bio: 'Specialist in AI and Machine Learning applications in healthcare.' },
+            { name: 'Dr. Arun Sharma',          email: 'arun.sharma@iitb.ac.in',    password: PWD, role: 'professor', institution: iitb._id, department: iitb_cse._id, phone: '+91-9300000003', bio: 'Database systems and distributed computing researcher.' },
+            { name: 'Prof. Neha Joshi',         email: 'neha.joshi@iitb.ac.in',     password: PWD, role: 'professor', institution: iitb._id, department: iitb_ee._id,  phone: '+91-9300000004', bio: 'Research focus on power electronics and VLSI design.' },
+            { name: 'Dr. Sandeep Reddy',        email: 'sandeep@iitd.ac.in',        password: PWD, role: 'professor', institution: iitd._id, department: iitd_cse._id, phone: '+91-9300000005', bio: 'Cloud computing and distributed systems expert.' },
+            { name: 'Prof. Kavitha Subramaniam',email: 'kavitha@annauniv.edu',      password: PWD, role: 'professor', institution: au._id,   department: au_it._id,    phone: '+91-9300000006', bio: 'Web technologies and software engineering.' },
+            // Students IITB CSE
+            { name: 'Vraj Patel',     email: 'vraj@iitb.ac.in',       password: PWD, role: 'student', institution: iitb._id, department: iitb_cse._id, phone: '+91-9400000000', enrollmentNumber: 'IITB-CSE-2024-001' },
+            { name: 'Rahul Verma',    email: 'rahul.v@iitb.ac.in',    password: PWD, role: 'student', institution: iitb._id, department: iitb_cse._id, phone: '+91-9400000001', enrollmentNumber: 'IITB-CSE-2024-002' },
+            { name: 'Priya Singh',    email: 'priya.s@iitb.ac.in',    password: PWD, role: 'student', institution: iitb._id, department: iitb_cse._id, phone: '+91-9400000002', enrollmentNumber: 'IITB-CSE-2024-003' },
+            { name: 'Siddharth Joshi',email: 'sid.j@iitb.ac.in',      password: PWD, role: 'student', institution: iitb._id, department: iitb_cse._id, phone: '+91-9400000003', enrollmentNumber: 'IITB-CSE-2024-004' },
+            { name: 'Ananya Sharma',  email: 'ananya.s@iitb.ac.in',   password: PWD, role: 'student', institution: iitb._id, department: iitb_cse._id, phone: '+91-9400000004', enrollmentNumber: 'IITB-CSE-2024-005' },
+            { name: 'Arjun Mehta',    email: 'arjun.m@iitb.ac.in',    password: PWD, role: 'student', institution: iitb._id, department: iitb_cse._id, phone: '+91-9400000005', enrollmentNumber: 'IITB-CSE-2024-006' },
+            { name: 'Divya Kapoor',   email: 'divya.k@iitb.ac.in',    password: PWD, role: 'student', institution: iitb._id, department: iitb_cse._id, phone: '+91-9400000006', enrollmentNumber: 'IITB-CSE-2024-007' },
+            // Students IITB EE
+            { name: 'Rohan Desai',    email: 'rohan.d@iitb.ac.in',    password: PWD, role: 'student', institution: iitb._id, department: iitb_ee._id,  phone: '+91-9400000007', enrollmentNumber: 'IITB-EE-2024-001' },
+            { name: 'Sneha Patil',    email: 'sneha.p@iitb.ac.in',    password: PWD, role: 'student', institution: iitb._id, department: iitb_ee._id,  phone: '+91-9400000008', enrollmentNumber: 'IITB-EE-2024-002' },
+            // Students IITD CSE
+            { name: 'Karan Agarwal',  email: 'karan.a@iitd.ac.in',    password: PWD, role: 'student', institution: iitd._id, department: iitd_cse._id, phone: '+91-9400000009', enrollmentNumber: 'IITD-CSE-2024-001' },
+            { name: 'Meera Krishnan', email: 'meera.k@iitd.ac.in',    password: PWD, role: 'student', institution: iitd._id, department: iitd_cse._id, phone: '+91-9400000010', enrollmentNumber: 'IITD-CSE-2024-002' },
+            // Students AU IT
+            { name: 'Tamil Selvam',   email: 'tamil.s@annauniv.edu',  password: PWD, role: 'student', institution: au._id,   department: au_it._id,    phone: '+91-9400000011', enrollmentNumber: 'AU-IT-2024-001' },
+            { name: 'Revathi Sundaram',email:'revathi.s@annauniv.edu',password: PWD, role: 'student', institution: au._id,   department: au_it._id,    phone: '+91-9400000012', enrollmentNumber: 'AU-IT-2024-002' },
+        ];
+        const users = [];
+        for (const u of usersData) { const user = new User(u); await user.save(); users.push(user); }
+        const [
+            superAdmin,
+            iitbAdmin, iitdAdmin, duAdmin, auAdmin,
+            iitbCseHod, iitbEeHod, iitdCseHod, auItHod,
+            profVikram, profSuchitra, profArun, profNeha, profSandeep, profKavitha,
+            rahul, priya, siddharth, ananya, arjun, divya,
+            rohan, sneha, karan, meera, tamil, revathi,
+        ] = users;
+        const iitbCseStudents = [rahul, priya, siddharth, ananya, arjun, divya];
+        const iitbEeStudents  = [rohan, sneha];
+        const iitdCseStudents = [karan, meera];
+        const auItStudents    = [tamil, revathi];
+        console.log('  Created ' + users.length + ' users.');
+
+        // ── 4. COURSES ───────────────────────────────────────────────────
+        console.log('Creating courses...');
+        const courses = await Course.insertMany([
+            { name: 'Data Structures and Algorithms',    code: 'CS201',  department: iitb_cse._id, semester: 3 },
+            { name: 'Design and Analysis of Algorithms', code: 'CS202',  department: iitb_cse._id, semester: 4 },
+            { name: 'Introduction to Machine Learning',  code: 'CS301',  department: iitb_cse._id, semester: 5 },
+            { name: 'Database Management Systems',       code: 'CS302',  department: iitb_cse._id, semester: 5 },
+            { name: 'Computer Networks',                 code: 'CS401',  department: iitb_cse._id, semester: 7 },
+            { name: 'Operating Systems',                 code: 'CS402',  department: iitb_cse._id, semester: 6 },
+            { name: 'Signals and Systems',               code: 'EE201',  department: iitb_ee._id,  semester: 3 },
+            { name: 'Digital Electronics',               code: 'EE202',  department: iitb_ee._id,  semester: 4 },
+            { name: 'Cloud Computing',                   code: 'DCS401', department: iitd_cse._id, semester: 8 },
+            { name: 'Compiler Design',                   code: 'DCS302', department: iitd_cse._id, semester: 6 },
+            { name: 'Web Technologies',                  code: 'IT301',  department: au_it._id,    semester: 5 },
+            { name: 'Software Engineering',              code: 'IT302',  department: au_it._id,    semester: 6 },
+        ]);
+        const [dsa, daa, ml, dbms, cn, os, ss, de, cloud, compiler, web, se] = courses;
+        console.log('  Created ' + courses.length + ' courses.');
+
+        // ── 5. LECTURES ──────────────────────────────────────────────────
+        console.log('Creating lectures (5 per professor)...');
+        const lectures = await Lecture.insertMany([
+            // Prof. Vikram (DSA) - 5 lectures
+            { title: 'Introduction to Linked Lists',               description: 'Singly and Doubly Linked Lists: traversal, insertion and deletion.',          fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'linked_lists.pdf',         course: dsa._id,   uploadedBy: profVikram._id,   semester: 3 },
+            { title: 'Sorting Algorithms: QuickSort & MergeSort',  description: 'Divide and conquer paradigm applied to sorting.',                              fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'sorting.pdf',              course: dsa._id,   uploadedBy: profVikram._id,   semester: 3 },
+            { title: 'Trees: BST, AVL and Red-Black Trees',        description: 'Self-balancing BSTs and their rotation operations.',                           fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'balanced_trees.pdf',       course: dsa._id,   uploadedBy: profVikram._id,   semester: 3 },
+            { title: 'Graph Algorithms: BFS and DFS',              description: 'Breadth-first and depth-first traversal with applications.',                   fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'graph_algorithms.pdf',     course: dsa._id,   uploadedBy: profVikram._id,   semester: 3 },
+            { title: 'Process Management and Scheduling',          description: 'Process states, PCB structure and CPU scheduling algorithms.',                 fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'process_scheduling.pdf',  course: os._id,   uploadedBy: profVikram._id,   semester: 6 },
+            
+            // Prof. Suchitra (ML) - 5 lectures
+            { title: 'Neural Networks Fundamentals',               description: 'Basic architecture of neural networks and backpropagation.',                   fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'nn_basics.pdf',            course: ml._id,    uploadedBy: profSuchitra._id, semester: 5 },
+            { title: 'Supervised Learning: Regression and Classification',description: 'Linear regression, logistic regression and decision trees.',                   fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'supervised_learning.pdf',  course: ml._id,    uploadedBy: profSuchitra._id, semester: 5 },
+            { title: 'Unsupervised Learning: Clustering',          description: 'K-Means, DBSCAN and hierarchical clustering techniques.',                     fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'clustering.pdf',           course: ml._id,    uploadedBy: profSuchitra._id, semester: 5 },
+            { title: 'Dimensionality Reduction Techniques',        description: 'PCA, t-SNE and feature selection methods.',                                   fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'dimensionality.pdf',       course: ml._id,    uploadedBy: profSuchitra._id, semester: 5 },
+            { title: 'Model Evaluation and Validation',            description: 'Cross-validation, metrics, and hyperparameter tuning.',                       fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'model_eval.pdf',           course: ml._id,    uploadedBy: profSuchitra._id, semester: 5 },
+            
+            // Prof. Arun (DBMS) - 5 lectures
+            { title: 'Entity-Relationship Model',                  description: 'ER diagrams, entities, attributes and relationships.',                         fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'er_model.pdf',             course: dbms._id,  uploadedBy: profArun._id,     semester: 5 },
+            { title: 'SQL: Queries and Joins',                     description: 'SELECT, WHERE, GROUP BY, HAVING and all JOIN types.',                          fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'sql_joins.pdf',            course: dbms._id,  uploadedBy: profArun._id,     semester: 5 },
+            { title: 'Normalisation and Transactions',             description: '1NF to BCNF normalisation rules and ACID properties.',                        fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'normalisation.pdf',        course: dbms._id,  uploadedBy: profArun._id,     semester: 5 },
+            { title: 'Indexing and Query Optimization',            description: 'B-tree indexes, query plans and optimization techniques.',                     fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'indexing.pdf',             course: dbms._id,  uploadedBy: profArun._id,     semester: 5 },
+            { title: 'OSI and TCP/IP Model',                       description: 'Network layers, protocols and encapsulation concepts.',                        fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'osi_tcp.pdf',              course: cn._id,   uploadedBy: profArun._id,     semester: 7 },
+            
+            // Prof. Kavitha (Web) - 5 lectures
+            { title: 'HTML5 and CSS3 Fundamentals',                description: 'Semantic HTML, CSS box model and Flexbox layout.',                            fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'html_css.pdf',             course: web._id,   uploadedBy: profKavitha._id,  semester: 5 },
+            { title: 'JavaScript ES6+ Features',                   description: 'Arrow functions, Promises, async/await and modules.',                         fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'js_es6.pdf',               course: web._id,   uploadedBy: profKavitha._id,  semester: 5 },
+            { title: 'RESTful API Design with Node.js',            description: 'REST principles, Express.js routing and middleware patterns.',                 fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'rest_api.pdf',             course: web._id,   uploadedBy: profKavitha._id,  semester: 5 },
+            { title: 'React Fundamentals and Hooks',               description: 'Components, state management, and lifecycle with React Hooks.',                fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'react_basics.pdf',         course: web._id,   uploadedBy: profKavitha._id,  semester: 5 },
+            { title: 'Database Integration in Web Development',    description: 'Connecting web applications to databases with ORM and queries.',               fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'db_integration.pdf',      course: web._id,   uploadedBy: profKavitha._id,  semester: 5 },
+            
+            // Prof. Sandeep (Cloud) - 5 lectures
+            { title: 'Introduction to Cloud Computing',            description: 'IaaS, PaaS, SaaS models and major providers overview.',                       fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'cloud_intro.pdf',          course: cloud._id, uploadedBy: profSandeep._id,  semester: 8 },
+            { title: 'Containerisation: Docker and Kubernetes',    description: 'Container lifecycle, Docker images and Kubernetes orchestration.',             fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'containers.pdf',          course: cloud._id, uploadedBy: profSandeep._id,  semester: 8 },
+            { title: 'AWS Services and Architecture',              description: 'EC2, S3, RDS, Lambda and serverless architecture patterns.',                   fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'aws_services.pdf',         course: cloud._id, uploadedBy: profSandeep._id,  semester: 8 },
+            { title: 'Cloud Security and Compliance',              description: 'Security groups, IAM, encryption and compliance frameworks.',                 fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'cloud_security.pdf',      course: cloud._id, uploadedBy: profSandeep._id,  semester: 8 },
+            { title: 'Monitoring and Cost Optimization',           description: 'CloudWatch, logging, alerts and cost management strategies.',                 fileUrl: DUMMY_PDF, fileType: 'pdf', fileName: 'monitoring.pdf',           course: cloud._id, uploadedBy: profSandeep._id,  semester: 8 },
+        ]);
+        console.log('  Created ' + lectures.length + ' lectures.');
+
+        // ── 6. QUIZZES ───────────────────────────────────────────────────
+        console.log('Creating quizzes...');
+        const quizDocs = await Quiz.insertMany([
+            {
+                title: 'DSA Quiz 1: Linked Lists and Stacks',
+                course: dsa._id, timeLimit: 15, createdBy: profVikram._id, deadline: daysFromNow(7),
+                questions: [
+                    { question: 'Time complexity to insert at the beginning of a singly linked list?', type: 'mcq', options: ['O(1)','O(n)','O(log n)','O(n squared)'],        correctAnswer: 'O(1)',   points: 2 },
+                    { question: 'Which data structure follows the LIFO principle?',                    type: 'mcq', options: ['Queue','Stack','Array','Linked List'],           correctAnswer: 'Stack',  points: 2 },
+                    { question: 'In a doubly linked list, each node has how many pointer fields?',     type: 'mcq', options: ['1','2','3','4'],                                 correctAnswer: '2',      points: 2 },
+                    { question: 'Space complexity of an array-based stack with n elements?',           type: 'mcq', options: ['O(1)','O(n)','O(log n)','O(n squared)'],        correctAnswer: 'O(n)',   points: 2 },
+                ],
+            },
+            {
+                title: 'DSA Quiz 2: Trees and Graphs',
+                course: dsa._id, timeLimit: 20, createdBy: profVikram._id, deadline: daysFromNow(14),
+                questions: [
+                    { question: 'Height of a balanced BST with n nodes is approximately?', type: 'mcq', options: ['O(n)','O(log n)','O(n log n)','O(1)'], correctAnswer: 'O(log n)', points: 3 },
+                    { question: 'In BFS traversal, which data structure is used?',         type: 'mcq', options: ['Stack','Queue','Heap','Array'],          correctAnswer: 'Queue',    points: 3 },
+                    { question: 'Explain the difference between BFS and DFS in terms of space complexity.', type: 'descriptive', options: [], correctAnswer: '', points: 4 },
+                ],
+            },
+            {
+                title: 'Machine Learning Basics Quiz',
+                course: ml._id, timeLimit: 20, createdBy: profSuchitra._id, deadline: daysFromNow(3),
+                questions: [
+                    { question: 'Is Linear Regression a supervised or unsupervised algorithm?', type: 'mcq', options: ['Supervised','Unsupervised','Semi-supervised','Reinforcement'], correctAnswer: 'Supervised', points: 5 },
+                    { question: 'Activation function for binary classification output layer?',   type: 'mcq', options: ['ReLU','Sigmoid','Tanh','Softmax'],                           correctAnswer: 'Sigmoid',    points: 5 },
+                    { question: 'What does k in k-Nearest Neighbors represent?', type: 'mcq', options: ['Number of features','Number of classes','Number of nearest training points to consider','Learning rate'], correctAnswer: 'Number of nearest training points to consider', points: 5 },
+                ],
+            },
+            {
+                title: 'DBMS Quiz: SQL and Normalisation',
+                course: dbms._id, timeLimit: 25, createdBy: profArun._id, deadline: daysFromNow(10),
+                questions: [
+                    { question: 'Which SQL clause is used to filter groups?',                       type: 'mcq', options: ['WHERE','HAVING','GROUP BY','ORDER BY'],                         correctAnswer: 'HAVING',          points: 3 },
+                    { question: 'In 2NF, a table must be in 1NF and have no:',                     type: 'mcq', options: ['Transitive dependencies','Partial dependencies','Multi-valued attributes','Null values'], correctAnswer: 'Partial dependencies', points: 3 },
+                    { question: 'Which join returns all rows from both tables, matching where possible?', type: 'mcq', options: ['INNER JOIN','LEFT JOIN','FULL OUTER JOIN','CROSS JOIN'], correctAnswer: 'FULL OUTER JOIN',  points: 4 },
+                ],
+            },
+            {
+                title: 'Cloud Computing Fundamentals Quiz',
+                course: cloud._id, timeLimit: 30, createdBy: profSandeep._id, deadline: daysFromNow(5),
+                questions: [
+                    { question: 'Which cloud service model gives the customer the most control?', type: 'mcq', options: ['SaaS','PaaS','IaaS','FaaS'], correctAnswer: 'IaaS', points: 5 },
+                    { question: 'What does auto-scaling primarily address?', type: 'mcq', options: ['Data backup','Network latency','Variable workload demands','Security threats'], correctAnswer: 'Variable workload demands', points: 5 },
+                ],
+            },
+        ]);
+        const [dsaQuiz1, dsaQuiz2, mlQuiz, dbmsQuiz, cloudQuiz] = quizDocs;
+        console.log('  Created ' + quizDocs.length + ' quizzes.');
+
+        // ── 7. QUIZ RESULTS ──────────────────────────────────────────────
+        console.log('Creating quiz results...');
+        const makeAnswers = (quizDoc, ans) =>
+            quizDoc.questions.map((q, i) => {
+                const a = ans[i] !== undefined ? ans[i] : q.correctAnswer;
+                const ok = a === q.correctAnswer;
+                return { questionId: q._id, answer: a, isCorrect: ok, pointsEarned: ok ? q.points : 0 };
+            });
+        const calcTotal = (answers) => answers.reduce((s, a) => s + a.pointsEarned, 0);
+        const calcMax   = (q) => q.questions.reduce((s, x) => s + x.points, 0);
+
+        const quizResultsData = [];
+        const dsaQ1Batch = [
+            { student: rahul,     ans: ['O(1)','Stack','2','O(n)']      },
+            { student: priya,     ans: ['O(1)','Stack','2','O(log n)']  },
+            { student: siddharth, ans: ['O(1)','Queue','2','O(n)']      },
+            { student: ananya,    ans: ['O(1)','Stack','2','O(n)']      },
+            { student: arjun,     ans: ['O(n)','Stack','2','O(n)']      },
+        ];
+        for (const { student, ans } of dsaQ1Batch) {
+            const answers = makeAnswers(dsaQuiz1, ans);
+            quizResultsData.push({ quiz: dsaQuiz1._id, student: student._id, answers, totalScore: calcTotal(answers), maxScore: calcMax(dsaQuiz1), submittedAt: daysAgo(2) });
+        }
+        const mlBatch = [
+            { student: rahul,  ans: ['Supervised','Sigmoid','Number of nearest training points to consider'] },
+            { student: priya,  ans: ['Supervised','ReLU',   'Number of nearest training points to consider'] },
+            { student: ananya, ans: ['Supervised','Sigmoid','Number of nearest training points to consider'] },
+        ];
+        for (const { student, ans } of mlBatch) {
+            const answers = makeAnswers(mlQuiz, ans);
+            quizResultsData.push({ quiz: mlQuiz._id, student: student._id, answers, totalScore: calcTotal(answers), maxScore: calcMax(mlQuiz), submittedAt: daysAgo(1) });
+        }
+        const dbmsBatch = [
+            { student: siddharth, ans: ['HAVING','Partial dependencies','FULL OUTER JOIN'] },
+            { student: divya,     ans: ['HAVING','Partial dependencies','INNER JOIN']      },
+        ];
+        for (const { student, ans } of dbmsBatch) {
+            const answers = makeAnswers(dbmsQuiz, ans);
+            quizResultsData.push({ quiz: dbmsQuiz._id, student: student._id, answers, totalScore: calcTotal(answers), maxScore: calcMax(dbmsQuiz), submittedAt: daysAgo(3) });
+        }
+        const cloudBatch = [
+            { student: karan, ans: ['IaaS','Variable workload demands'] },
+            { student: meera, ans: ['PaaS','Variable workload demands'] },
+        ];
+        for (const { student, ans } of cloudBatch) {
+            const answers = makeAnswers(cloudQuiz, ans);
+            quizResultsData.push({ quiz: cloudQuiz._id, student: student._id, answers, totalScore: calcTotal(answers), maxScore: calcMax(cloudQuiz), submittedAt: daysAgo(1) });
+        }
+        await QuizResult.insertMany(quizResultsData);
+        console.log('  Created ' + quizResultsData.length + ' quiz results.');
+
+        // ── 8. ASSIGNMENTS ───────────────────────────────────────────────
+        console.log('Creating assignments...');
+        const assignments = await Assignment.insertMany([
+            {
+                title: 'Implement Skip List and XOR Linked List',
+                description: 'Implement a skip list and an XOR linked list in C++. Include test cases and complexity analysis.',
+                course: dsa._id, dueDate: daysFromNow(5), maxMarks: 50, createdBy: profVikram._id,
+                submissions: [
+                    { student: rahul._id,     submittedAt: daysAgo(1), status: 'graded',  marks: 44, feedback: 'Excellent XOR list. Minor edge-case missing in skip list.', isLate: false },
+                    { student: priya._id,     submittedAt: daysAgo(1), status: 'graded',  marks: 47, feedback: 'Perfect implementation with thorough test cases.',           isLate: false },
+                    { student: siddharth._id, submittedAt: new Date(), status: 'pending', marks: null, feedback: '',                                                          isLate: false },
+                    { student: ananya._id,    submittedAt: daysAgo(2), status: 'graded',  marks: 40, feedback: 'Good effort. Improve time complexity analysis.',              isLate: false },
+                ],
+            },
+            {
+                title: 'Graph Algorithms: Dijkstra and Bellman-Ford',
+                description: 'Implement Dijkstra and Bellman-Ford in Python. Compare performance on provided test graphs.',
+                course: dsa._id, dueDate: daysFromNow(10), maxMarks: 60, createdBy: profVikram._id,
+                submissions: [
+                    { student: arjun._id, submittedAt: new Date(), status: 'pending', marks: null, feedback: '', isLate: false },
+                    { student: divya._id, submittedAt: new Date(), status: 'pending', marks: null, feedback: '', isLate: false },
+                ],
+            },
+            {
+                title: 'Build a Classification Model',
+                description: 'Use the Iris dataset to train and evaluate Decision Tree and SVM classifiers using scikit-learn.',
+                course: ml._id, dueDate: daysFromNow(8), maxMarks: 100, createdBy: profSuchitra._id,
+                submissions: [
+                    { student: rahul._id,  submittedAt: daysAgo(1), status: 'graded',  marks: 88, feedback: 'Strong analysis. Add confusion matrix visualisation.', isLate: false },
+                    { student: priya._id,  submittedAt: daysAgo(1), status: 'graded',  marks: 93, feedback: 'Outstanding: excellent feature engineering.',          isLate: false },
+                    { student: ananya._id, submittedAt: new Date(), status: 'pending', marks: null, feedback: '',                                                    isLate: false },
+                ],
+            },
+            {
+                title: 'Database Design: University ERD',
+                description: 'Design an ER diagram for a university system. Convert to 3NF relational schema and write 10 SQL queries.',
+                course: dbms._id, dueDate: daysFromNow(6), maxMarks: 80, createdBy: profArun._id,
+                submissions: [
+                    { student: siddharth._id, submittedAt: daysAgo(2), status: 'graded', marks: 72, feedback: 'Good design. Check cardinality of enrollment relationship.', isLate: false },
+                    { student: divya._id,     submittedAt: daysAgo(1), status: 'graded', marks: 76, feedback: 'Excellent normalisation steps.',                             isLate: false },
+                ],
+            },
+            {
+                title: 'Deploy a 3-Tier App on AWS',
+                description: 'Deploy a Node.js backend, React frontend and MySQL DB on AWS using EC2, RDS and S3.',
+                course: cloud._id, dueDate: daysFromNow(14), maxMarks: 100, createdBy: profSandeep._id,
+                submissions: [
+                    { student: karan._id, submittedAt: new Date(), status: 'pending', marks: null, feedback: '', isLate: false },
+                    { student: meera._id, submittedAt: new Date(), status: 'pending', marks: null, feedback: '', isLate: false },
+                ],
+            },
+            {
+                title: 'Full-Stack To-Do Application',
+                description: 'Build a full-stack to-do app using React and Node.js/Express with MongoDB.',
+                course: web._id, dueDate: daysFromNow(12), maxMarks: 100, createdBy: profKavitha._id,
+                submissions: [
+                    { student: tamil._id,   submittedAt: daysAgo(1), status: 'graded', marks: 85, feedback: 'Clean UI and working CRUD. Add authentication.',   isLate: false },
+                    { student: revathi._id, submittedAt: daysAgo(1), status: 'graded', marks: 91, feedback: 'Excellent work! JWT auth implementation is great.', isLate: false },
+                ],
+            },
+        ]);
+        console.log('  Created ' + assignments.length + ' assignments.');
+
+        // ── 9. ANNOUNCEMENTS ─────────────────────────────────────────────
+        console.log('Creating announcements...');
+        await Announcement.insertMany([
+            { title: 'Welcome to Spring Semester 2026',      content: 'We are delighted to welcome all students and faculty to Spring 2026. Please review your course schedules.',                     type: 'institute', targetAudience: { institution: iitb._id },    priority: 'important', isPinned: true, createdBy: iitbAdmin._id, expiryDate: daysFromNow(30) },
+            { title: 'Campus Network Maintenance',            content: 'The campus network will be under maintenance on Saturday from 2 AM to 6 AM. Expect downtime.',                                 type: 'institute', targetAudience: { institution: iitb._id },    priority: 'urgent',    createdBy: iitbAdmin._id },
+            { title: 'Annual Tech Fest: TechNova 2026',       content: 'Registrations are now open for TechNova 2026. Participate in hackathons, paper presentations and coding contests.',            type: 'institute', targetAudience: { institution: iitd._id },    priority: 'important', createdBy: iitdAdmin._id, expiryDate: daysFromNow(45) },
+            { title: 'CSE Workshop on Deep Learning',         content: 'A 2-day intensive workshop on Deep Learning with PyTorch will be held on 20-21 March 2026.',                                   type: 'department', targetAudience: { department: iitb_cse._id }, priority: 'normal',    createdBy: iitbCseHod._id },
+            { title: 'Project Submission Guidelines Updated', content: 'End-semester project submission guidelines have been updated. Read the document on the portal before submitting.',             type: 'department', targetAudience: { department: iitb_cse._id }, priority: 'important', createdBy: iitbCseHod._id },
+            { title: 'DSA Quiz 1 Reminder',                   content: 'DSA Quiz 1 is scheduled for next Monday. Topics covered: Linked Lists, Stacks and Queues. Prepare well.',                     type: 'course',    targetAudience: { course: dsa._id },           priority: 'urgent',    createdBy: profVikram._id },
+            { title: 'ML Assignment Deadline Extended',       content: 'Due to requests from multiple students the ML classification assignment deadline has been extended by 3 days.',                type: 'course',    targetAudience: { course: ml._id },            priority: 'important', createdBy: profSuchitra._id },
+            { title: 'DBMS Extra Class on Transactions',      content: 'An extra class covering DB transactions, concurrency control and recovery will be held this Friday at 4 PM in LHC-301.',      type: 'course',    targetAudience: { course: dbms._id },          priority: 'normal',    createdBy: profArun._id },
+        ]);
+        console.log('  Created 8 announcements.');
+
+        // ── 10. FORUM POSTS ──────────────────────────────────────────────
+        console.log('Creating forum posts...');
+        await ForumPost.insertMany([
+            {
+                course: dsa._id, author: rahul._id, isResolved: true,
+                title: 'How does rebalancing work in an AVL tree?',
+                content: 'I understand the concept of balance factor but I am confused about when to perform single vs double rotations. Can someone clarify?',
+                replies: [
+                    { author: profVikram._id, content: 'A single rotation is used when the imbalance is on the same side as the insertion (LL/RR case). A double rotation is needed for the opposite side (LR/RL case).', upvotes: [priya._id, siddharth._id, ananya._id] },
+                    { author: priya._id, content: 'The visualgo.net tool has a great AVL tree visualisation. Try inserting values step by step there.', upvotes: [rahul._id] },
+                ],
+            },
+            {
+                course: dsa._id, author: arjun._id, isResolved: true,
+                title: 'Dijkstra vs Bellman-Ford: when to use which?',
+                content: 'For the assignment should I always prefer Dijkstra? What happens if the graph has negative weights?',
+                replies: [
+                    { author: profVikram._id, content: 'Dijkstra works only on non-negative weight graphs with O((V+E)logV). Bellman-Ford handles negative weights at O(VE) and detects negative cycles. Use Dijkstra unless negatives are present.', upvotes: [arjun._id, divya._id, rahul._id] },
+                ],
+            },
+            {
+                course: ml._id, author: priya._id, isResolved: false,
+                title: 'Overfitting in neural networks: how to fix?',
+                content: 'My neural network performs well on training data but poorly on validation data. What regularisation techniques should I apply?',
+                replies: [
+                    { author: profSuchitra._id, content: 'Common techniques: Dropout layers, L2 regularisation, early stopping and data augmentation. Try adding a Dropout(0.3) after each dense layer.', upvotes: [priya._id, ananya._id] },
+                    { author: ananya._id, content: 'I had the same issue. Reducing model complexity by using fewer layers also helped me significantly.', upvotes: [priya._id] },
+                ],
+            },
+            {
+                course: dbms._id, author: siddharth._id, isResolved: true,
+                title: 'Difference between 2NF and 3NF?',
+                content: 'I understand partial dependencies for 2NF but what exactly is a transitive dependency?',
+                replies: [
+                    { author: profArun._id, content: 'A transitive dependency is when a non-key attribute depends on another non-key attribute. Example: Student -> DeptID -> DeptName. Fix: create a separate Dept table.', upvotes: [siddharth._id, divya._id] },
+                ],
+            },
+            {
+                course: cloud._id, author: karan._id, isResolved: false,
+                title: 'Docker vs VM: key architectural differences?',
+                content: 'I understand containers are lighter but how do I explain the architectural difference clearly in my report?',
+                replies: [
+                    { author: profSandeep._id, content: 'VMs virtualise hardware (each has a full OS); Docker containers share the host OS kernel. Focus on: isolation mechanism, startup time, resource usage and portability.', upvotes: [karan._id, meera._id] },
+                ],
+            },
+            {
+                course: web._id, author: tamil._id, isResolved: true,
+                title: 'How to handle JWT expiry in the React frontend?',
+                content: 'My app works fine but when the JWT expires users get stuck. Should I implement refresh tokens?',
+                replies: [
+                    { author: profKavitha._id, content: 'Yes. Store the short-lived access token in memory and the long-lived refresh token in an HttpOnly cookie. Use an axios response interceptor to silently refresh on 401.', upvotes: [tamil._id, revathi._id] },
+                    { author: revathi._id, content: 'I followed this approach. Using axios interceptors as shown in the lecture notes makes it completely seamless.', upvotes: [tamil._id] },
+                ],
+            },
+        ]);
+        console.log('  Created 6 forum posts.');
+
+        // ── 11. ATTENDANCE ───────────────────────────────────────────────
+        console.log('Creating attendance records...');
+        await Attendance.insertMany([
+            { course: dsa._id,   date: daysAgo(10), markedBy: profVikram._id,   students: iitbCseStudents.map((s,i) => ({ student: s._id, status: i===4 ? 'absent'  : 'present' })) },
+            { course: dsa._id,   date: daysAgo(8),  markedBy: profVikram._id,   students: iitbCseStudents.map((s,i) => ({ student: s._id, status: i===2 ? 'late'    : 'present' })) },
+            { course: dsa._id,   date: daysAgo(6),  markedBy: profVikram._id,   students: iitbCseStudents.map((s)   => ({ student: s._id, status: 'present' })) },
+            { course: dsa._id,   date: daysAgo(4),  markedBy: profVikram._id,   students: iitbCseStudents.map((s,i) => ({ student: s._id, status: i===5 ? 'absent'  : 'present' })) },
+            { course: dsa._id,   date: daysAgo(2),  markedBy: profVikram._id,   students: iitbCseStudents.map((s)   => ({ student: s._id, status: 'present' })) },
+            { course: ml._id,    date: daysAgo(9),  markedBy: profSuchitra._id, students: iitbCseStudents.map((s,i) => ({ student: s._id, status: i===1 ? 'absent'  : 'present' })) },
+            { course: ml._id,    date: daysAgo(5),  markedBy: profSuchitra._id, students: iitbCseStudents.map((s)   => ({ student: s._id, status: 'present' })) },
+            { course: ml._id,    date: daysAgo(1),  markedBy: profSuchitra._id, students: iitbCseStudents.map((s,i) => ({ student: s._id, status: i===3 ? 'late'    : 'present' })) },
+            { course: dbms._id,  date: daysAgo(7),  markedBy: profArun._id,     students: iitbCseStudents.map((s)   => ({ student: s._id, status: 'present' })) },
+            { course: dbms._id,  date: daysAgo(3),  markedBy: profArun._id,     students: iitbCseStudents.map((s,i) => ({ student: s._id, status: i===0 ? 'absent'  : 'present' })) },
+            { course: cloud._id, date: daysAgo(6),  markedBy: profSandeep._id,  students: iitdCseStudents.map((s)   => ({ student: s._id, status: 'present' })) },
+            { course: cloud._id, date: daysAgo(2),  markedBy: profSandeep._id,  students: iitdCseStudents.map((s,i) => ({ student: s._id, status: i===1 ? 'late'    : 'present' })) },
+            { course: web._id,   date: daysAgo(5),  markedBy: profKavitha._id,  students: auItStudents.map((s)   => ({ student: s._id, status: 'present' })) },
+            { course: web._id,   date: daysAgo(1),  markedBy: profKavitha._id,  students: auItStudents.map((s,i) => ({ student: s._id, status: i===0 ? 'absent'  : 'present' })) },
+        ]);
+        console.log('  Created 14 attendance records.');
+
+        // ── 12. TIMETABLE ────────────────────────────────────────────────
+        console.log('Creating timetable entries...');
+        await Timetable.insertMany([
+            { course: dsa._id,   professor: profVikram._id,   dayOfWeek: 'Monday',    startTime: '09:00', endTime: '10:30', room: 'LHC-101',   department: iitb_cse._id, semester: 3 },
+            { course: dsa._id,   professor: profVikram._id,   dayOfWeek: 'Wednesday', startTime: '09:00', endTime: '10:30', room: 'LHC-101',   department: iitb_cse._id, semester: 3 },
+            { course: dsa._id,   professor: profVikram._id,   dayOfWeek: 'Friday',    startTime: '09:00', endTime: '10:30', room: 'LHC-101',   department: iitb_cse._id, semester: 3 },
+            { course: ml._id,    professor: profSuchitra._id, dayOfWeek: 'Tuesday',   startTime: '11:00', endTime: '12:30', room: 'LHC-202',   department: iitb_cse._id, semester: 5 },
+            { course: ml._id,    professor: profSuchitra._id, dayOfWeek: 'Thursday',  startTime: '11:00', endTime: '12:30', room: 'LHC-202',   department: iitb_cse._id, semester: 5 },
+            { course: dbms._id,  professor: profArun._id,     dayOfWeek: 'Monday',    startTime: '14:00', endTime: '15:30', room: 'LHC-103',   department: iitb_cse._id, semester: 5 },
+            { course: dbms._id,  professor: profArun._id,     dayOfWeek: 'Wednesday', startTime: '14:00', endTime: '15:30', room: 'LHC-103',   department: iitb_cse._id, semester: 5 },
+            { course: os._id,    professor: profVikram._id,   dayOfWeek: 'Tuesday',   startTime: '09:00', endTime: '10:30', room: 'SIC-201',   department: iitb_cse._id, semester: 6 },
+            { course: os._id,    professor: profVikram._id,   dayOfWeek: 'Friday',    startTime: '11:00', endTime: '12:30', room: 'SIC-201',   department: iitb_cse._id, semester: 6 },
+            { course: cn._id,    professor: profArun._id,     dayOfWeek: 'Thursday',  startTime: '14:00', endTime: '15:30', room: 'LHC-301',   department: iitb_cse._id, semester: 7 },
+            { course: cloud._id, professor: profSandeep._id,  dayOfWeek: 'Monday',    startTime: '10:00', endTime: '11:30', room: 'NIC-102',   department: iitd_cse._id, semester: 8 },
+            { course: cloud._id, professor: profSandeep._id,  dayOfWeek: 'Thursday',  startTime: '10:00', endTime: '11:30', room: 'NIC-102',   department: iitd_cse._id, semester: 8 },
+            { course: web._id,   professor: profKavitha._id,  dayOfWeek: 'Tuesday',   startTime: '13:00', endTime: '14:30', room: 'IT-Lab-1',  department: au_it._id,    semester: 5 },
+            { course: web._id,   professor: profKavitha._id,  dayOfWeek: 'Friday',    startTime: '13:00', endTime: '14:30', room: 'IT-Lab-1',  department: au_it._id,    semester: 5 },
+        ]);
+        console.log('  Created 14 timetable entries.');
+
+        // ── 13. EVENTS ───────────────────────────────────────────────────
+        console.log('Creating events...');
+        await Event.insertMany([
+            { title: 'Mid-Semester Examinations Spring 2026', description: 'Mid-semester exams for all 2nd and 3rd year students.',                     type: 'exam',     startDate: new Date('2026-03-25T09:00:00Z'), endDate: new Date('2026-04-05T17:00:00Z'), isAllDay: false, createdBy: iitbAdmin._id },
+            { title: 'Holi Festival Holiday',                 description: 'Campus closed for Holi celebrations. No lectures or labs.',                  type: 'holiday',  startDate: new Date('2026-03-14T00:00:00Z'), endDate: new Date('2026-03-15T23:59:00Z'), isAllDay: true,  createdBy: iitbAdmin._id },
+            { title: 'Institute Foundation Day',              description: 'Annual Foundation Day with guest lectures and award ceremonies.',            type: 'event',    startDate: new Date('2026-04-10T10:00:00Z'), endDate: new Date('2026-04-10T18:00:00Z'), isAllDay: false, createdBy: iitdAdmin._id },
+            { title: 'CSE Seminar: AI in Industry',           description: 'Distinguished lecture series with speakers from Google, Microsoft and ISRO.', type: 'event',   startDate: new Date('2026-03-18T14:00:00Z'), endDate: new Date('2026-03-18T17:00:00Z'), isAllDay: false, department: iitb_cse._id, createdBy: iitbCseHod._id },
+            { title: 'EE Department Project Presentation',    description: 'Final year project presentations for EE students.',                          type: 'event',    startDate: new Date('2026-04-20T09:00:00Z'), endDate: new Date('2026-04-20T17:00:00Z'), isAllDay: false, department: iitb_ee._id,  createdBy: iitbEeHod._id },
+            { title: 'DSA End-Semester Examination',          description: 'Comprehensive exam covering all DSA topics from Weeks 1-14.',                type: 'exam',     startDate: new Date('2026-05-05T09:00:00Z'), endDate: new Date('2026-05-05T12:00:00Z'), isAllDay: false, course: dsa._id,          createdBy: profVikram._id },
+            { title: 'ML Assignment Final Deadline',          description: 'Last date to submit the classification model assignment.',                   type: 'deadline', startDate: daysFromNow(8),                                                              isAllDay: true,  course: ml._id,           createdBy: profSuchitra._id },
+            { title: 'DBMS Lab: SQL Practice Session',        description: 'Hands-on lab session for SQL query optimisation.',                          type: 'meeting',  startDate: new Date('2026-03-20T14:00:00Z'), endDate: new Date('2026-03-20T16:00:00Z'), isAllDay: false, course: dbms._id,         createdBy: profArun._id },
+            { title: 'Cloud Hackathon: Build on AWS',         description: '24-hour hackathon for Cloud Computing students.',                           type: 'event',    startDate: new Date('2026-03-28T09:00:00Z'), endDate: new Date('2026-03-29T09:00:00Z'), isAllDay: false, course: cloud._id,        createdBy: profSandeep._id },
+        ]);
+        console.log('  Created 9 events.');
+
+        // ── 14. GRADEBOOK ────────────────────────────────────────────────
+        console.log('Creating gradebooks...');
+        const gradeComponents = [
+            { name: 'Assignments', weightage: 30, maxMarks: 100 },
+            { name: 'Midterm',     weightage: 30, maxMarks: 100 },
+            { name: 'Final Exam',  weightage: 40, maxMarks: 100 },
+        ];
+        const buildGrades = (students, scoreMap) =>
+            students.flatMap((s) =>
+                gradeComponents.map((c) => ({
+                    student: s._id,
+                    componentName: c.name,
+                    marksObtained: (scoreMap[s.email] && scoreMap[s.email][c.name]) || 0,
+                    date: daysAgo(Math.floor(Math.random() * 5)),
+                }))
+            );
+        await Gradebook.insertMany([
+            {
+                course: dsa._id, components: gradeComponents, createdBy: profVikram._id,
+                grades: buildGrades(iitbCseStudents, {
+                    'rahul.v@iitb.ac.in':  { Assignments: 88, Midterm: 76, 'Final Exam': 82 },
+                    'priya.s@iitb.ac.in':  { Assignments: 94, Midterm: 89, 'Final Exam': 91 },
+                    'sid.j@iitb.ac.in':    { Assignments: 72, Midterm: 68, 'Final Exam': 74 },
+                    'ananya.s@iitb.ac.in': { Assignments: 80, Midterm: 85, 'Final Exam': 88 },
+                    'arjun.m@iitb.ac.in':  { Assignments: 65, Midterm: 70, 'Final Exam': 72 },
+                    'divya.k@iitb.ac.in':  { Assignments: 90, Midterm: 92, 'Final Exam': 95 },
+                }),
+            },
+            {
+                course: ml._id, components: gradeComponents, createdBy: profSuchitra._id,
+                grades: buildGrades(iitbCseStudents, {
+                    'rahul.v@iitb.ac.in':  { Assignments: 85, Midterm: 78, 'Final Exam': 80 },
+                    'priya.s@iitb.ac.in':  { Assignments: 91, Midterm: 88, 'Final Exam': 93 },
+                    'sid.j@iitb.ac.in':    { Assignments: 70, Midterm: 65, 'Final Exam': 71 },
+                    'ananya.s@iitb.ac.in': { Assignments: 83, Midterm: 80, 'Final Exam': 84 },
+                    'arjun.m@iitb.ac.in':  { Assignments: 60, Midterm: 62, 'Final Exam': 68 },
+                    'divya.k@iitb.ac.in':  { Assignments: 88, Midterm: 90, 'Final Exam': 92 },
+                }),
+            },
+            {
+                course: dbms._id, components: gradeComponents, createdBy: profArun._id,
+                grades: buildGrades(iitbCseStudents, {
+                    'rahul.v@iitb.ac.in':  { Assignments: 75, Midterm: 72, 'Final Exam': 78 },
+                    'priya.s@iitb.ac.in':  { Assignments: 88, Midterm: 85, 'Final Exam': 89 },
+                    'sid.j@iitb.ac.in':    { Assignments: 82, Midterm: 79, 'Final Exam': 83 },
+                    'ananya.s@iitb.ac.in': { Assignments: 76, Midterm: 74, 'Final Exam': 80 },
+                    'arjun.m@iitb.ac.in':  { Assignments: 68, Midterm: 65, 'Final Exam': 70 },
+                    'divya.k@iitb.ac.in':  { Assignments: 92, Midterm: 90, 'Final Exam': 94 },
+                }),
+            },
+            {
+                course: cloud._id, components: gradeComponents, createdBy: profSandeep._id,
+                grades: buildGrades(iitdCseStudents, {
+                    'karan.a@iitd.ac.in': { Assignments: 91, Midterm: 87, 'Final Exam': 89 },
+                    'meera.k@iitd.ac.in': { Assignments: 84, Midterm: 80, 'Final Exam': 86 },
+                }),
+            },
+            {
+                course: web._id, components: gradeComponents, createdBy: profKavitha._id,
+                grades: buildGrades(auItStudents, {
+                    'tamil.s@annauniv.edu':   { Assignments: 85, Midterm: 82, 'Final Exam': 87 },
+                    'revathi.s@annauniv.edu': { Assignments: 92, Midterm: 90, 'Final Exam': 93 },
+                }),
+            },
+        ]);
+        console.log('  Created 5 gradebooks.');
+
+        // ── 15. NOTIFICATIONS ────────────────────────────────────────────
+        console.log('Creating notifications...');
+        const notifData = [];
+        for (const s of iitbCseStudents) {
+            notifData.push({ userId: s._id, type: 'assignment',   title: 'New Assignment Posted',  message: 'Assignment "Implement Skip List and XOR Linked List" has been posted in DSA.',     link: '/student/assignments', isRead: false });
+            notifData.push({ userId: s._id, type: 'assignment',   title: 'New Assignment Posted',  message: 'Assignment "Build a Classification Model" has been posted in ML.',               link: '/student/assignments', isRead: false });
+            notifData.push({ userId: s._id, type: 'quiz',         title: 'New Quiz Available',     message: 'DSA Quiz 1: Linked Lists and Stacks is now live. Deadline in 7 days.',            link: '/student/quizzes',     isRead: false });
+            notifData.push({ userId: s._id, type: 'announcement', title: 'Institute Announcement', message: 'Welcome to Spring Semester 2026. Please review your course schedules.',          link: '/announcements',       isRead: true  });
+        }
+        const gradedNotifs = [
+            { student: rahul,     msg: 'Your DSA assignment has been graded: 44/50.'   },
+            { student: priya,     msg: 'Your DSA assignment has been graded: 47/50.'   },
+            { student: ananya,    msg: 'Your DSA assignment has been graded: 40/50.'   },
+            { student: rahul,     msg: 'Your ML assignment has been graded: 88/100.'   },
+            { student: priya,     msg: 'Your ML assignment has been graded: 93/100.'   },
+            { student: siddharth, msg: 'Your DBMS assignment has been graded: 72/80.'  },
+            { student: divya,     msg: 'Your DBMS assignment has been graded: 76/80.'  },
+            { student: tamil,     msg: 'Your Web Tech assignment has been graded: 85/100.' },
+            { student: revathi,   msg: 'Your Web Tech assignment has been graded: 91/100.' },
+        ];
+        for (const { student, msg } of gradedNotifs) {
+            notifData.push({ userId: student._id, type: 'grade', title: 'Assignment Graded', message: msg, link: '/student/assignments', isRead: false });
+        }
+        notifData.push({ userId: arjun._id,  type: 'attendance', title: 'Attendance Alert', message: 'You were marked absent in DSA on ' + daysAgo(10).toDateString() + '. Attendance below 75%.', link: '/student/attendance', isRead: false });
+        notifData.push({ userId: divya._id,  type: 'attendance', title: 'Attendance Alert', message: 'You were marked absent in DSA on ' + daysAgo(4).toDateString() + '.', link: '/student/attendance', isRead: false });
+        for (const s of iitdCseStudents) {
+            notifData.push({ userId: s._id, type: 'lecture',    title: 'New Lecture Uploaded', message: 'Lecture "Containerisation: Docker and Kubernetes" added to Cloud Computing.', link: '/student/lectures',    isRead: false });
+            notifData.push({ userId: s._id, type: 'assignment', title: 'New Assignment Posted', message: 'Assignment "Deploy a 3-Tier App on AWS" posted in Cloud Computing.',         link: '/student/assignments', isRead: false });
+        }
+        await Notification.insertMany(notifData);
+        console.log('  Created ' + notifData.length + ' notifications.');
+
+        // ── 16. GENERATE IDs ────────────────────────────────────────────
+        console.log('Generating Department and Professor IDs...');
+        const { deptIdCount, profIdCount } = await generateIds();
+        console.log('  Generated departmentIds: ' + deptIdCount);
+        console.log('  Generated professorIds: ' + profIdCount + '\n');
+
+        // ── 17. AUDIT LOGS ───────────────────────────────────────────────
+        console.log('Creating audit logs...');
+        const auditData = [
+            { userId: superAdmin._id,   action: 'login',  resource: 'user',         resourceId: superAdmin._id,  description: 'Super admin logged in',                    ipAddress: '192.168.1.1'  },
+            { userId: iitbAdmin._id,    action: 'login',  resource: 'user',         resourceId: iitbAdmin._id,   description: 'Institutional admin logged in',            ipAddress: '192.168.1.10' },
+            { userId: iitdAdmin._id,    action: 'login',  resource: 'user',         resourceId: iitdAdmin._id,   description: 'Institutional admin logged in',            ipAddress: '192.168.1.11' },
+            { userId: profVikram._id,   action: 'login',  resource: 'user',         resourceId: profVikram._id,  description: 'Professor logged in',                      ipAddress: '192.168.1.20' },
+            { userId: profSuchitra._id, action: 'login',  resource: 'user',         resourceId: profSuchitra._id,description: 'Professor logged in',                      ipAddress: '192.168.1.21' },
+            { userId: rahul._id,        action: 'login',  resource: 'user',         resourceId: rahul._id,       description: 'Student logged in',                        ipAddress: '192.168.1.30' },
+            { userId: priya._id,        action: 'login',  resource: 'user',         resourceId: priya._id,       description: 'Student logged in',                        ipAddress: '192.168.1.31' },
+            { userId: superAdmin._id,   action: 'create', resource: 'institution',  resourceId: iitb._id,        description: 'Created institution: IITB',                ipAddress: '192.168.1.1'  },
+            { userId: superAdmin._id,   action: 'create', resource: 'institution',  resourceId: iitd._id,        description: 'Created institution: IITD',                ipAddress: '192.168.1.1'  },
+            { userId: superAdmin._id,   action: 'create', resource: 'institution',  resourceId: du._id,          description: 'Created institution: DU',                  ipAddress: '192.168.1.1'  },
+            { userId: superAdmin._id,   action: 'create', resource: 'institution',  resourceId: au._id,          description: 'Created institution: AU',                  ipAddress: '192.168.1.1'  },
+            { userId: iitbAdmin._id,    action: 'create', resource: 'department',   resourceId: iitb_cse._id,    description: 'Created department: CSE at IITB',          ipAddress: '192.168.1.10' },
+            { userId: iitbAdmin._id,    action: 'create', resource: 'department',   resourceId: iitb_ee._id,     description: 'Created department: EE at IITB',           ipAddress: '192.168.1.10' },
+            { userId: iitbCseHod._id,   action: 'create', resource: 'course',       resourceId: dsa._id,         description: 'Created course: Data Structures and Algorithms', ipAddress: '192.168.1.11' },
+            { userId: iitbCseHod._id,   action: 'create', resource: 'course',       resourceId: ml._id,          description: 'Created course: Introduction to Machine Learning', ipAddress: '192.168.1.11' },
+            { userId: profVikram._id,   action: 'upload', resource: 'lecture',      resourceId: lectures[0]._id, description: 'Uploaded: Introduction to Linked Lists',   ipAddress: '192.168.1.20' },
+            { userId: profVikram._id,   action: 'upload', resource: 'lecture',      resourceId: lectures[1]._id, description: 'Uploaded: Sorting Algorithms',             ipAddress: '192.168.1.20' },
+            { userId: profSuchitra._id, action: 'upload', resource: 'lecture',      resourceId: lectures[4]._id, description: 'Uploaded: Neural Networks Fundamentals',  ipAddress: '192.168.1.21' },
+            { userId: profArun._id,     action: 'upload', resource: 'lecture',      resourceId: lectures[7]._id, description: 'Uploaded: Entity-Relationship Model',     ipAddress: '192.168.1.22' },
+            { userId: profSandeep._id,  action: 'upload', resource: 'lecture',      resourceId: lectures[11]._id,description: 'Uploaded: Containerisation Docker and Kubernetes', ipAddress: '192.168.1.23' },
+            { userId: rahul._id,        action: 'submit', resource: 'quiz',         resourceId: dsaQuiz1._id,    description: 'Submitted DSA Quiz 1',                    ipAddress: '192.168.1.30' },
+            { userId: priya._id,        action: 'submit', resource: 'quiz',         resourceId: dsaQuiz1._id,    description: 'Submitted DSA Quiz 1',                    ipAddress: '192.168.1.31' },
+            { userId: karan._id,        action: 'submit', resource: 'quiz',         resourceId: cloudQuiz._id,   description: 'Submitted Cloud Computing Quiz',           ipAddress: '192.168.1.40' },
+            { userId: rahul._id,        action: 'submit', resource: 'assignment',   resourceId: assignments[0]._id, description: 'Submitted: Implement Skip List and XOR Linked List', ipAddress: '192.168.1.30' },
+            { userId: priya._id,        action: 'submit', resource: 'assignment',   resourceId: assignments[0]._id, description: 'Submitted: Implement Skip List and XOR Linked List', ipAddress: '192.168.1.31' },
+            { userId: tamil._id,        action: 'submit', resource: 'assignment',   resourceId: assignments[5]._id, description: 'Submitted: Full-Stack To-Do Application', ipAddress: '192.168.1.50' },
+            { userId: revathi._id,      action: 'submit', resource: 'assignment',   resourceId: assignments[5]._id, description: 'Submitted: Full-Stack To-Do Application', ipAddress: '192.168.1.51' },
+            { userId: profVikram._id,   action: 'grade',  resource: 'assignment',   resourceId: assignments[0]._id, description: 'Graded DSA Assignment 1 submissions',    ipAddress: '192.168.1.20' },
+            { userId: profArun._id,     action: 'grade',  resource: 'assignment',   resourceId: assignments[3]._id, description: 'Graded DBMS Assignment submissions',     ipAddress: '192.168.1.22' },
+            { userId: profKavitha._id,  action: 'grade',  resource: 'assignment',   resourceId: assignments[5]._id, description: 'Graded Web Tech Assignment submissions',  ipAddress: '192.168.1.24' },
+            { userId: iitbAdmin._id,    action: 'create', resource: 'announcement', description: 'Created: Welcome to Spring Semester 2026',                               ipAddress: '192.168.1.10' },
+            { userId: profVikram._id,   action: 'create', resource: 'announcement', description: 'Created: DSA Quiz 1 Reminder',                                           ipAddress: '192.168.1.20' },
+            { userId: profVikram._id,   action: 'create', resource: 'attendance',   description: 'Marked attendance for DSA class',                                        ipAddress: '192.168.1.20' },
+            { userId: rahul._id,        action: 'enroll', resource: 'course',       resourceId: dsa._id,   description: 'Enrolled in Data Structures and Algorithms',       ipAddress: '192.168.1.30' },
+            { userId: priya._id,        action: 'enroll', resource: 'course',       resourceId: ml._id,    description: 'Enrolled in Introduction to Machine Learning',      ipAddress: '192.168.1.31' },
+            { userId: karan._id,        action: 'enroll', resource: 'course',       resourceId: cloud._id, description: 'Enrolled in Cloud Computing',                       ipAddress: '192.168.1.40' },
+            { userId: rahul._id,        action: 'logout', resource: 'user',         resourceId: rahul._id,       description: 'Student logged out',                         ipAddress: '192.168.1.30' },
+            { userId: profVikram._id,   action: 'logout', resource: 'user',         resourceId: profVikram._id,  description: 'Professor logged out',                       ipAddress: '192.168.1.20' },
+        ];
+        await AuditLog.insertMany(auditData);
+        console.log('  Created ' + auditData.length + ' audit log entries.');
+
+        // ── SUMMARY ──────────────────────────────────────────────────────
+        const allStudents = [...iitbCseStudents, ...iitbEeStudents, ...iitdCseStudents, ...auItStudents];
+        console.log('\n' + '='.repeat(70));
+        console.log('  COMPLETE DATABASE SEED - 5 LECTURES PER PROFESSOR');
+        console.log('='.repeat(70) + '\n');
+
+        console.log('INSTITUTIONS (' + institutions.length + ')');
+        for (const i of institutions) console.log('  ' + i.code.padEnd(6) + ' - ' + i.name);
+
+        console.log('\nCREDENTIALS  (all passwords: Password@123)');
+        console.log('  [super_admin]  ' + superAdmin.email);
+        console.log('  [inst_admin]   ' + [iitbAdmin, iitdAdmin, duAdmin, auAdmin].map(u => u.email).join('  |  '));
+        console.log('  [dept_admin]   ' + [iitbCseHod, iitbEeHod, iitdCseHod, auItHod].map(u => u.email).join('  |  '));
+        console.log('  [professor]    ' + [profVikram, profSuchitra, profArun, profNeha, profSandeep, profKavitha].map(u => u.email).join('  |  '));
+        console.log('  [students]');
+        for (const s of allStudents) console.log('    ' + s.email);
+
+        console.log('\nCOLLECTION COUNTS');
+        console.log('  Institutions  : ' + institutions.length);
+        console.log('  Departments   : ' + departments.length);
+        console.log('  Users         : ' + users.length);
+        console.log('  Courses       : ' + courses.length);
+        console.log('  Lectures      : ' + lectures.length + ' (5 per professor)');
+        console.log('  Quizzes       : ' + quizDocs.length);
+        console.log('  QuizResults   : ' + quizResultsData.length);
+        console.log('  Assignments   : ' + assignments.length);
+        console.log('  Announcements : 8');
+        console.log('  ForumPosts    : 6');
+        console.log('  Attendance    : 14 records');
+        console.log('  Timetable     : 14 entries');
+        console.log('  Events        : 9');
+        console.log('  Gradebooks    : 5');
+        console.log('  Notifications : ' + notifData.length);
+        console.log('  AuditLogs     : ' + auditData.length);
+
+        console.log('\nPROFESSORS & LECTURES');
+        console.log('  • Prof. Vikram Malhotra (vikram@iitb.ac.in) : 5 lectures (DSA, OS)');
+        console.log('  • Prof. Suchitra Iyer (suchitra@iitb.ac.in) : 5 lectures (ML)');
+        console.log('  • Prof. Arun Sharma (arun.sharma@iitb.ac.in) : 5 lectures (DBMS, Networks)');
+        console.log('  • Prof. Kavitha Subramaniam (kavitha@annauniv.edu) : 5 lectures (Web)');
+        console.log('  • Prof. Sandeep Reddy (sandeep@iitd.ac.in) : 5 lectures (Cloud)');
+
+        console.log('\nID GENERATION');
+        console.log('  Department IDs generated : ' + deptIdCount);
+        console.log('  Professor IDs generated  : ' + profIdCount);
+
+        console.log('\nNOTES');
+        console.log('  • Each professor has exactly 5 lectures');
+        console.log('  • No semester lectures or demo labs included');
+        console.log('  • All lectures ready for filtering by uploadedBy');
+
+        console.log('\nDone. Exiting...');
+        process.exit(0);
+
+    } catch (err) {
+        console.error('\n[SEED ERROR]', err);
+        process.exit(1);
+    }
+};
+
+seedData();
